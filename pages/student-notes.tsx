@@ -5,6 +5,7 @@ import React, { useState, useEffect } from "react";
 import Head from "next/head";
 import { useAuth } from "@/contexts/AuthContext";
 import { getNotes, getCourses } from "@/utils/api";
+import { useRouter } from "next/router";
 
 interface Note {
   _id: string;
@@ -24,6 +25,7 @@ interface Course {
 
 const StudentNotes = () => {
   const { user } = useAuth();
+  const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [courses, setCourses] = useState<Course[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
@@ -32,6 +34,11 @@ const StudentNotes = () => {
   const [selectedCourse, setSelectedCourse] = useState("");
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const query = router.query.q;
+    setSearchTerm(typeof query === "string" ? query : "");
+  }, [router.query.q]);
 
   // Check if user is student
   useEffect(() => {

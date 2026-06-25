@@ -4,6 +4,7 @@ import TabBar from "@/components/TabBar";
 import Head from "next/head";
 import { Menu, X, Plus, Filter } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useRouter } from "next/router";
 
 type Note = {
   id: string;
@@ -60,9 +61,11 @@ const trackDownload = (
 
 const NotesPage: React.FC = () => {
   const { user } = useAuth();
+  const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [sortBy, setSortBy] = useState<"date" | "title">("date");
   const [filterTag, setFilterTag] = useState<string>("All");
+  const [searchTerm, setSearchTerm] = useState("");
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -79,6 +82,11 @@ const NotesPage: React.FC = () => {
     attachmentUrl: "",
   });
   const [newNoteFile, setNewNoteFile] = useState<File | null>(null);
+
+  useEffect(() => {
+    const query = router.query.q;
+    setSearchTerm(typeof query === "string" ? query : "");
+  }, [router.query.q]);
 
   const mapNote = (item: any): Note => ({
     id: item._id,
@@ -122,6 +130,14 @@ const NotesPage: React.FC = () => {
 
   const displayed = useMemo(() => {
     let list = [...notes];
+    const query = searchTerm.trim().toLowerCase();
+    if (query) {
+      list = list.filter((n) =>
+        [n.title, n.excerpt, n.author, ...n.tags]
+          .filter(Boolean)
+          .some((value) => value.toLowerCase().includes(query)),
+      );
+    }
     if (filterTag !== "All") {
       list = list.filter((n) => n.tags.includes(filterTag));
     }
@@ -131,7 +147,7 @@ const NotesPage: React.FC = () => {
       return a.title.localeCompare(b.title);
     });
     return list;
-  }, [filterTag, sortBy, notes]);
+  }, [filterTag, searchTerm, sortBy, notes]);
 
   return (
     <>

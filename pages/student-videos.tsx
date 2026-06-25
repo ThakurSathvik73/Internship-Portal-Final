@@ -5,6 +5,7 @@ import React, { useState, useEffect } from "react";
 import Head from "next/head";
 import { useAuth } from "@/contexts/AuthContext";
 import { getVideos, getRecordings, getCourses } from "@/utils/api";
+import { useRouter } from "next/router";
 
 interface ContentItem {
   _id: string;
@@ -23,6 +24,7 @@ interface Course {
 
 const StudentVideos = () => {
   const { user } = useAuth();
+  const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("videos");
   const [courses, setCourses] = useState<Course[]>([]);
@@ -32,6 +34,11 @@ const StudentVideos = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCourse, setSelectedCourse] = useState("");
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const query = router.query.q;
+    setSearchTerm(typeof query === "string" ? query : "");
+  }, [router.query.q]);
 
   // Check if user is student
   useEffect(() => {

@@ -4,6 +4,8 @@ import { Menu, CheckSquare, Plus, Search, X, User, Users, Calendar, Trash2 } fro
 import React, { useState, useEffect } from "react";
 import Head from "next/head";
 import { useAuth } from "@/contexts/AuthContext";
+import { getAuthHeaders } from "@/utils/api";
+import { useRouter } from "next/router";
 
 type Task = {
   _id?: string;
@@ -22,6 +24,7 @@ type Task = {
 
 const TasksPage = () => {
   const { user } = useAuth();
+  const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -47,10 +50,17 @@ const TasksPage = () => {
     }
   }, [user?.email, user?.role]);
 
+  useEffect(() => {
+    const query = router.query.q;
+    setSearchTerm(typeof query === "string" ? query : "");
+  }, [router.query.q]);
+
   const fetchTasks = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/tasks?role=${user?.role}&email=${user?.email}`);
+      const response = await fetch(`/api/tasks?role=${user?.role}&email=${user?.email}`, {
+        headers: getAuthHeaders(),
+      });
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -83,7 +93,7 @@ const TasksPage = () => {
     try {
       const response = await fetch("/api/tasks", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           ...newTask,
           role: user?.role || "",
@@ -118,7 +128,7 @@ const TasksPage = () => {
     try {
       const response = await fetch("/api/tasks", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           id: showAssignModal._id || showAssignModal.id,
           assignedTo: assignData.facultyEmail,
@@ -152,7 +162,7 @@ const TasksPage = () => {
     try {
       const response = await fetch("/api/tasks", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           id: showAssignModal._id || showAssignModal.id,
           assignedStudents: studentList,
@@ -187,7 +197,7 @@ const TasksPage = () => {
     try {
       const response = await fetch("/api/tasks", {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           id: taskId,
           role: user?.role || "",

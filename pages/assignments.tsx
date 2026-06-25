@@ -4,6 +4,8 @@ import { Menu, Search, X } from "lucide-react";
 import React from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import Head from "next/head";
+import { getAuthHeaders } from "@/utils/api";
+import { useRouter } from "next/router";
 
 type AssignmentStatus = "Pending" | "Progress" | "Done";
 
@@ -34,6 +36,7 @@ const statusDot: Record<AssignmentStatus, string> = {
 
 const Assignments = () => {
   const { user } = useAuth();
+  const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
   const [searchTerm, setSearchTerm] = React.useState("");
   const [assignments, setAssignments] = React.useState<Assignment[]>([]);
@@ -78,21 +81,35 @@ const Assignments = () => {
 
   // Load assignments from database on mount
   React.useEffect(() => {
+    const query = router.query.q;
+    setSearchTerm(typeof query === "string" ? query : "");
+  }, [router.query.q]);
+
+  React.useEffect(() => {
+    if (!user?.email || !user?.role) {
+      setAssignments([]);
+      return;
+    }
+
     const loadAssignments = async () => {
       try {
-        const response = await fetch(`/api/assignments?role=${user?.role}&email=${user?.email}`);
+        const response = await fetch(`/api/assignments?role=${user.role}&email=${user.email}`, {
+          headers: getAuthHeaders(),
+        });
         if (response.ok) {
           const data = await response.json();
           if (data.data) {
             setAssignments(data.data);
           }
+        } else if (response.status === 401 || response.status === 403) {
+          setAssignments([]);
         }
       } catch (error) {
         console.error("Failed to load assignments:", error);
       }
     };
     loadAssignments();
-  }, [user]);
+  }, [user?.email, user?.role]);
 
   const setStatus = (id: number, status: AssignmentStatus) => {
     setAssignments((prev) =>
@@ -101,7 +118,7 @@ const Assignments = () => {
     // Update in database
     fetch("/api/assignments", {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ id, status }),
     }).catch((error) => console.error("Failed to update status:", error));
   };
@@ -140,7 +157,7 @@ const Assignments = () => {
       // Update in database
       fetch("/api/assignments", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           id: item.id,
           students: [...item.students, name],
@@ -194,7 +211,7 @@ const Assignments = () => {
                   );
                   fetch("/api/assignments", {
                     method: "DELETE",
-                    headers: { "Content-Type": "application/json" },
+                    headers: getAuthHeaders(),
                     body: JSON.stringify({ id: item.id }),
                   }).catch((error) =>
                     console.error("Failed to archive assignment:", error),
@@ -259,9 +276,7 @@ const Assignments = () => {
     // Save to database
     fetch(`/api/assignments`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify({
         title,
         course,
@@ -334,7 +349,7 @@ const Assignments = () => {
         // Update in database
         fetch("/api/assignments", {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers: getAuthHeaders(),
           body: JSON.stringify({
             id: submitModal.assignmentId,
             submission: {
@@ -790,7 +805,7 @@ const Assignments = () => {
             // Update in database
             fetch("/api/assignments", {
               method: "PUT",
-              headers: { "Content-Type": "application/json" },
+              headers: getAuthHeaders(),
               body: JSON.stringify({
                 id: gradeModal.assignmentId,
                 grade,
@@ -962,7 +977,7 @@ const Assignments = () => {
 
             fetch("/api/assignments", {
               method: "PUT",
-              headers: { "Content-Type": "application/json" },
+              headers: getAuthHeaders(),
               body: JSON.stringify({
                 id: editModal.assignmentId,
                 title: updatedAssignment.title,

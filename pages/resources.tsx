@@ -4,6 +4,7 @@ import { Menu, Plus, Search, X, FileText, Image, File, Download } from "lucide-r
 import React, { useState, useEffect } from "react";
 import Head from "next/head";
 import { useAuth } from "@/contexts/AuthContext";
+import { useRouter } from "next/router";
 
 type Resource = {
   _id?: string;
@@ -16,6 +17,7 @@ type Resource = {
 
 const Resources = () => {
   const { user } = useAuth();
+  const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [resources, setResources] = useState<Resource[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -28,6 +30,11 @@ const Resources = () => {
     type: "pdf",
     color: "red",
   });
+
+  useEffect(() => {
+    const query = router.query.q;
+    setSearchTerm(typeof query === "string" ? query : "");
+  }, [router.query.q]);
 
   useEffect(() => {
     fetchResources();

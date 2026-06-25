@@ -1,5 +1,6 @@
 import { connectDB } from "@/data/database/mangodb";
 import Recording from "@/data/models/recording";
+import { getRequestUser, requireRoles } from "@/utils/apiAuth";
 import type { NextApiRequest, NextApiResponse } from "next";
 
 type ResponseData = {
@@ -15,8 +16,11 @@ export default async function handler(
   try {
     await connectDB();
 
-    const userRole = req.headers["x-user-role"] as string;
-    const userEmail = req.headers["x-user-email"] as string;
+    const currentUser = getRequestUser(req);
+
+    if (!currentUser) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
 
     if (req.method === "GET") {
       const { course } = req.query;
@@ -24,12 +28,7 @@ export default async function handler(
       const recordings = await Recording.find(query);
       return res.status(200).json({ success: true, data: recordings });
     } else if (req.method === "POST") {
-      // Only Admin and Faculty can create recordings
-      if (userRole !== "Superadmin" && userRole !== "Admin" && userRole !== "Faculty") {
-        return res
-          .status(403)
-          .json({ error: "Only Admin and Faculty can create recordings" });
-      }
+      if (!requireRoles(req, res, ["Superadmin", "Admin", "Faculty"])) return;
 
       const { title, description, course, recordingUrl, thumbnail, duration, recordedDate, assignedTo } =
         req.body;
@@ -46,18 +45,13 @@ export default async function handler(
         thumbnail,
         duration,
         recordedDate,
-        createdBy: userEmail,
+        createdBy: currentUser.email,
         assignedTo: assignedTo || [],
       });
 
       return res.status(201).json({ success: true, data: newRecording });
     } else if (req.method === "PUT") {
-      // Only Admin and Faculty can update recordings
-      if (userRole !== "Superadmin" && userRole !== "Admin" && userRole !== "Faculty") {
-        return res
-          .status(403)
-          .json({ error: "Only Admin and Faculty can update recordings" });
-      }
+      if (!requireRoles(req, res, ["Superadmin", "Admin", "Faculty"])) return;
 
       const { id, ...updateData } = req.body;
 
@@ -71,12 +65,7 @@ export default async function handler(
 
       return res.status(200).json({ success: true, data: updatedRecording });
     } else if (req.method === "DELETE") {
-      // Only Admin and Faculty can delete recordings
-      if (userRole !== "Superadmin" && userRole !== "Admin" && userRole !== "Faculty") {
-        return res
-          .status(403)
-          .json({ error: "Only Admin and Faculty can delete recordings" });
-      }
+      if (!requireRoles(req, res, ["Superadmin", "Admin", "Faculty"])) return;
 
       const { id } = req.body;
 

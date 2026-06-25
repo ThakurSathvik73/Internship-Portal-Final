@@ -17,10 +17,10 @@ export default async function handler(
     await connectDB();
 
     if (req.method === "GET") {
-      const courses = await Course.find();
+      const courses = await Course.find().sort({ createdAt: -1, name: 1 });
       return res.status(200).json({ success: true, data: courses });
     } else if (req.method === "POST") {
-      const currentUser = requireRoles(req, res, ["Superadmin", "Admin"]);
+      const currentUser = requireRoles(req, res, ["Superadmin", "Admin", "Faculty"]);
       if (!currentUser) return;
 
       const { name, code, description, instructor, semester, credits } = req.body;
@@ -38,10 +38,34 @@ export default async function handler(
         credits,
         createdBy: currentUser.email,
         enrolledStudents: [],
-        enrolledFaculty: [],
+        enrolledFaculty: currentUser.role === "Faculty" ? [currentUser.email] : [],
       });
 
       return res.status(201).json({ success: true, data: newCourse });
+    } else if (req.method === "PATCH") {
+      const currentUser = requireRoles(req, res, ["Superadmin", "Admin", "Faculty", "Student"]);
+      if (!currentUser) return;
+
+      const { id, action } = req.body;
+
+      if (!id || action !== "enroll") {
+        return res.status(400).json({ error: "Course ID and a valid action are required" });
+      }
+
+      const update =
+        currentUser.role === "Faculty"
+          ? { $addToSet: { enrolledFaculty: currentUser.email } }
+          : { $addToSet: { enrolledStudents: currentUser.email } };
+
+      const updatedCourse = await Course.findByIdAndUpdate(id, update, {
+        new: true,
+      });
+
+      if (!updatedCourse) {
+        return res.status(404).json({ error: "Course not found" });
+      }
+
+      return res.status(200).json({ success: true, data: updatedCourse });
     } else if (req.method === "PUT") {
       const currentUser = requireRoles(req, res, ["Superadmin", "Admin"]);
       if (!currentUser) return;
@@ -75,6 +99,9 @@ export default async function handler(
     }
   } catch (error) {
     console.error("Error handling course request:", error);
+    if ((error as any)?.code === 11000) {
+      return res.status(409).json({ error: "Course name or code already exists" });
+    }
     return res.status(500).json({ error: "Internal Server Error" });
   }
 }

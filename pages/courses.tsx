@@ -4,6 +4,8 @@ import { Menu, BookOpen, Users, Clock, X, Search, Plus } from "lucide-react";
 import React, { useEffect, useState } from "react";
 import Head from "next/head";
 import { useAuth } from "@/contexts/AuthContext";
+import { useRouter } from "next/router";
+import { createCourse, enrollCourse } from "@/utils/api";
 //new comment
 type Course = {
   _id?: string;
@@ -25,11 +27,23 @@ type Course = {
 
 const Courses = () => {
   const { user } = useAuth();
+  const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [courseForm, setCourseForm] = useState({
+    name: "",
+    code: "",
+    description: "",
+    instructor: "",
+    semester: "",
+    credits: "",
+  });
 
   useEffect(() => {
     const fetchCourses = async () => {
@@ -54,6 +68,11 @@ const Courses = () => {
     fetchCourses();
   }, []);
 
+  useEffect(() => {
+    const query = router.query.q;
+    setSearchTerm(typeof query === "string" ? query : "");
+  }, [router.query.q]);
+
   const filteredCourses = courses.filter((course) => {
     const query = searchTerm.trim().toLowerCase();
     if (!query) return true;
@@ -69,7 +88,84 @@ const Courses = () => {
       .some((value) => value!.toLowerCase().includes(query));
   });
 
-  const canCreateCourse = user?.role === "Admin" || user?.role === "Faculty";
+  const canCreateCourse =
+    user?.role === "Superadmin" || user?.role === "Admin" || user?.role === "Faculty";
+  const userEmail = user?.email || "";
+
+  const refreshCourse = (updatedCourse: Course) => {
+    setCourses((current) =>
+      current.map((course) =>
+        (course._id || course.id) === (updatedCourse._id || updatedCourse.id)
+          ? updatedCourse
+          : course,
+      ),
+    );
+  };
+
+  const handleCreateCourse = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const name = courseForm.name.trim();
+    const code = courseForm.code.trim();
+    const instructor = courseForm.instructor.trim() || user?.name || user?.email || "";
+
+    if (!name || !code || !instructor) {
+      setError("Course name, code, and instructor are required.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setError("");
+      const result = await createCourse({
+        name,
+        code,
+        description: courseForm.description.trim(),
+        instructor,
+        semester: courseForm.semester.trim(),
+        credits: courseForm.credits ? Number(courseForm.credits) : undefined,
+      });
+      setCourses((current) => [result.data, ...current]);
+      setCourseForm({
+        name: "",
+        code: "",
+        description: "",
+        instructor: "",
+        semester: "",
+        credits: "",
+      });
+      setShowCreateModal(false);
+      setSuccess("Course created successfully.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create course");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleEnroll = async (course: Course) => {
+    const id = course._id || course.id;
+    if (!id) return;
+
+    try {
+      setSaving(true);
+      setError("");
+      const result = await enrollCourse(id);
+      refreshCourse(result.data);
+      setSuccess(user?.role === "Faculty" ? "Course assigned to you." : "Enrolled successfully.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update course");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleManageCourse = (course: Course) => {
+    const query = course.name || course.title || course.code || "";
+    router.push({
+      pathname: "/admin-content",
+      query: query ? { q: query } : undefined,
+    });
+  };
 
   return (
     <>
@@ -132,7 +228,10 @@ const Courses = () => {
                 </p>
               </div>
               {canCreateCourse && (
-                <button className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors">
+                <button
+                  onClick={() => setShowCreateModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+                >
                   <Plus size={20} />
                   Create Course
                 </button>
@@ -161,6 +260,10 @@ const Courses = () => {
 
             {error && !loading && (
               <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            )}
+
+            {success && !error && (
+              <p className="mb-4 text-sm text-green-600 dark:text-green-400">{success}</p>
             )}
 
             {!loading && !error && filteredCourses.length === 0 && (
@@ -208,13 +311,29 @@ const Courses = () => {
 
                   <div className="flex gap-2">
                     {user?.role === "Student" && (
-                      <button className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 text-sm font-medium">
-                        Enroll
+                      <button
+                        onClick={() => handleEnroll(course)}
+                        disabled={saving || course.enrolledStudents?.includes(userEmail)}
+                        className="flex-1 px-4 py-2 bg-orange-500 disabled:bg-gray-300 text-white rounded-lg hover:bg-orange-600 text-sm font-medium"
+                      >
+                        {course.enrolledStudents?.includes(userEmail) ? "Enrolled" : "Enroll"}
                       </button>
                     )}
-                    {(user?.role === "Faculty" || user?.role === "Admin") && (
-                      <button className="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 text-sm font-medium">
-                        Manage
+                    {(user?.role === "Faculty" || user?.role === "Admin" || user?.role === "Superadmin") && (
+                      <button
+                        onClick={() =>
+                          user?.role === "Faculty"
+                            ? handleEnroll(course)
+                            : handleManageCourse(course)
+                        }
+                        disabled={saving || (user?.role === "Faculty" && course.enrolledFaculty?.includes(userEmail))}
+                        className="flex-1 px-4 py-2 bg-gray-200 disabled:opacity-60 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 text-sm font-medium"
+                      >
+                        {user?.role === "Admin" || user?.role === "Superadmin"
+                          ? "Manage"
+                          : course.enrolledFaculty?.includes(userEmail)
+                            ? "Assigned"
+                            : "Assign to me"}
                       </button>
                     )}
                   </div>
@@ -225,6 +344,84 @@ const Courses = () => {
           </div>
         </div>
       </div>
+
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-xl">
+            <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-800 p-5">
+              <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Create Course</h2>
+              <button
+                type="button"
+                onClick={() => setShowCreateModal(false)}
+                className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <form onSubmit={handleCreateCourse} className="space-y-4 p-5">
+              <input
+                value={courseForm.name}
+                onChange={(e) => setCourseForm({ ...courseForm, name: e.target.value })}
+                placeholder="Course name"
+                className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-2.5 text-gray-900 dark:text-gray-100"
+                required
+              />
+              <input
+                value={courseForm.code}
+                onChange={(e) => setCourseForm({ ...courseForm, code: e.target.value })}
+                placeholder="Course code"
+                className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-2.5 text-gray-900 dark:text-gray-100"
+                required
+              />
+              <input
+                value={courseForm.instructor}
+                onChange={(e) => setCourseForm({ ...courseForm, instructor: e.target.value })}
+                placeholder="Instructor"
+                className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-2.5 text-gray-900 dark:text-gray-100"
+              />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <input
+                  value={courseForm.semester}
+                  onChange={(e) => setCourseForm({ ...courseForm, semester: e.target.value })}
+                  placeholder="Semester"
+                  className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-2.5 text-gray-900 dark:text-gray-100"
+                />
+                <input
+                  type="number"
+                  min="0"
+                  value={courseForm.credits}
+                  onChange={(e) => setCourseForm({ ...courseForm, credits: e.target.value })}
+                  placeholder="Credits"
+                  className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-2.5 text-gray-900 dark:text-gray-100"
+                />
+              </div>
+              <textarea
+                value={courseForm.description}
+                onChange={(e) => setCourseForm({ ...courseForm, description: e.target.value })}
+                placeholder="Description"
+                rows={4}
+                className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-2.5 text-gray-900 dark:text-gray-100"
+              />
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateModal(false)}
+                  className="flex-1 rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-2.5 font-semibold text-gray-700 dark:text-gray-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex-1 rounded-lg bg-orange-500 px-4 py-2.5 font-semibold text-white hover:bg-orange-600 disabled:bg-gray-300"
+                >
+                  {saving ? "Saving..." : "Create Course"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 };

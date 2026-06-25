@@ -4,7 +4,8 @@ import { Menu, X, Plus, Trash2, Edit2, Search, FileText, Video, Mic, BookOpen } 
 import React, { useState, useEffect } from "react";
 import Head from "next/head";
 import { useAuth } from "@/contexts/AuthContext";
-import { getCourses, createCourse, deleteVideo, deleteRecording, deleteNote, getVideos, getRecordings, getNotes, createVideo, createRecording, createNote } from "@/utils/api";
+import { getCourses, createCourse, deleteCourse, deleteVideo, deleteRecording, deleteNote, getVideos, getRecordings, getNotes, createVideo, createRecording, createNote } from "@/utils/api";
+import { useRouter } from "next/router";
 
 interface ContentItem {
   _id: string;
@@ -24,6 +25,7 @@ interface Course {
 
 const AdminContent = () => {
   const { user } = useAuth();
+  const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("courses");
   const [courses, setCourses] = useState<Course[]>([]);
@@ -74,6 +76,11 @@ const AdminContent = () => {
     };
     loadData();
   }, []);
+
+  useEffect(() => {
+    const query = router.query.q;
+    setSearchTerm(typeof query === "string" ? query : "");
+  }, [router.query.q]);
 
   const handleCreateCourse = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -148,14 +155,17 @@ const AdminContent = () => {
     try {
       setLoading(true);
       let deleteFunc;
-      if (type === "video") deleteFunc = deleteVideo;
+      if (type === "course") deleteFunc = deleteCourse;
+      else if (type === "video") deleteFunc = deleteVideo;
       else if (type === "recording") deleteFunc = deleteRecording;
       else if (type === "note") deleteFunc = deleteNote;
       else return;
 
       await deleteFunc(id);
 
-      if (type === "video") {
+      if (type === "course") {
+        setCourses(courses.filter(c => c._id !== id));
+      } else if (type === "video") {
         setVideos(videos.filter(v => v._id !== id));
       } else if (type === "recording") {
         setRecordings(recordings.filter(r => r._id !== id));
@@ -171,6 +181,25 @@ const AdminContent = () => {
       setLoading(false);
     }
   };
+
+  const matchesSearch = (...values: Array<string | undefined>) => {
+    const query = searchTerm.trim().toLowerCase();
+    if (!query) return true;
+    return values.some((value) => (value || "").toLowerCase().includes(query));
+  };
+
+  const filteredCourses = courses.filter((course) =>
+    matchesSearch(course.name, course.code, course.instructor, course.description),
+  );
+  const filteredVideos = videos.filter((video) =>
+    matchesSearch(video.title, video.course, video.description),
+  );
+  const filteredRecordings = recordings.filter((recording) =>
+    matchesSearch(recording.title, recording.course, recording.description),
+  );
+  const filteredNotes = notes.filter((note) =>
+    matchesSearch(note.title, note.course, note.description),
+  );
 
   const renderCoursesTab = () => (
     <div className="space-y-4">
@@ -188,7 +217,7 @@ const AdminContent = () => {
       </div>
 
       <div className="grid gap-4">
-        {courses.map((course) => (
+        {filteredCourses.map((course) => (
           <div key={course._id} className="bg-white dark:bg-gray-900 p-6 rounded-lg border border-gray-200 dark:border-gray-800">
             <div className="flex justify-between items-start">
               <div className="flex-1">
@@ -228,7 +257,7 @@ const AdminContent = () => {
       </div>
 
       <div className="grid gap-4">
-        {videos.map((video) => (
+        {filteredVideos.map((video) => (
           <div key={video._id} className="bg-white dark:bg-gray-900 p-6 rounded-lg border border-gray-200 dark:border-gray-800">
             <div className="flex justify-between items-start">
               <div className="flex-1">
@@ -270,7 +299,7 @@ const AdminContent = () => {
       </div>
 
       <div className="grid gap-4">
-        {recordings.map((recording) => (
+        {filteredRecordings.map((recording) => (
           <div key={recording._id} className="bg-white dark:bg-gray-900 p-6 rounded-lg border border-gray-200 dark:border-gray-800">
             <div className="flex justify-between items-start">
               <div className="flex-1">
@@ -312,7 +341,7 @@ const AdminContent = () => {
       </div>
 
       <div className="grid gap-4">
-        {notes.map((note) => (
+        {filteredNotes.map((note) => (
           <div key={note._id} className="bg-white dark:bg-gray-900 p-6 rounded-lg border border-gray-200 dark:border-gray-800">
             <div className="flex justify-between items-start">
               <div className="flex-1">
@@ -393,6 +422,20 @@ const AdminContent = () => {
             <div className="mb-8">
               <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-2">Content Management</h1>
               <p className="text-gray-600 dark:text-gray-400">Manage courses, videos, recordings, and notes for your LMS</p>
+            </div>
+
+            <div className="relative mb-6">
+              <Search
+                size={18}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+              />
+              <input
+                type="text"
+                placeholder="Search content..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+              />
             </div>
 
             <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800">

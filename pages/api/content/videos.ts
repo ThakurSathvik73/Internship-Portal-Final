@@ -1,5 +1,6 @@
 import { connectDB } from "@/data/database/mangodb";
 import Video from "@/data/models/video";
+import { getRequestUser, requireRoles } from "@/utils/apiAuth";
 import type { NextApiRequest, NextApiResponse } from "next";
 
 type ResponseData = {
@@ -15,8 +16,11 @@ export default async function handler(
   try {
     await connectDB();
 
-    const userRole = req.headers["x-user-role"] as string;
-    const userEmail = req.headers["x-user-email"] as string;
+    const currentUser = getRequestUser(req);
+
+    if (!currentUser) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
 
     if (req.method === "GET") {
       const { course } = req.query;
@@ -24,12 +28,7 @@ export default async function handler(
       const videos = await Video.find(query);
       return res.status(200).json({ success: true, data: videos });
     } else if (req.method === "POST") {
-      // Only Admin and Faculty can create videos
-      if (userRole !== "Superadmin" && userRole !== "Admin" && userRole !== "Faculty") {
-        return res
-          .status(403)
-          .json({ error: "Only Admin and Faculty can create videos" });
-      }
+      if (!requireRoles(req, res, ["Superadmin", "Admin", "Faculty"])) return;
 
       const { title, description, course, videoUrl, thumbnail, duration, assignedTo } =
         req.body;
@@ -45,18 +44,13 @@ export default async function handler(
         videoUrl,
         thumbnail,
         duration,
-        createdBy: userEmail,
+        createdBy: currentUser.email,
         assignedTo: assignedTo || [],
       });
 
       return res.status(201).json({ success: true, data: newVideo });
     } else if (req.method === "PUT") {
-      // Only Admin and Faculty can update videos
-      if (userRole !== "Superadmin" && userRole !== "Admin" && userRole !== "Faculty") {
-        return res
-          .status(403)
-          .json({ error: "Only Admin and Faculty can update videos" });
-      }
+      if (!requireRoles(req, res, ["Superadmin", "Admin", "Faculty"])) return;
 
       const { id, ...updateData } = req.body;
 
@@ -70,12 +64,7 @@ export default async function handler(
 
       return res.status(200).json({ success: true, data: updatedVideo });
     } else if (req.method === "DELETE") {
-      // Only Admin and Faculty can delete videos
-      if (userRole !== "Superadmin" && userRole !== "Admin" && userRole !== "Faculty") {
-        return res
-          .status(403)
-          .json({ error: "Only Admin and Faculty can delete videos" });
-      }
+      if (!requireRoles(req, res, ["Superadmin", "Admin", "Faculty"])) return;
 
       const { id } = req.body;
 

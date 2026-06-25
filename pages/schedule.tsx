@@ -6,16 +6,19 @@ import {
   FilterIcon,
   Menu,
   Plus,
+  Trash2,
   X,
 } from "lucide-react";
 import Head from "next/head";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useRouter } from "next/router";
 
 type ViewMode = "month" | "week" | "day";
 
 type CalendarEvent = {
-  id: number;
+  _id?: string;
+  id?: string;
   title: string;
   date: string; // YYYY-MM-DD
   time?: string;
@@ -97,11 +100,61 @@ const isSameDay = (a: Date, b: Date) =>
   a.getMonth() === b.getMonth() &&
   a.getDate() === b.getDate();
 
+const canUserSeeEvent = (event: CalendarEvent, role?: string) => {
+  const assignedTo = event.assignedTo || [];
+  if (assignedTo.length === 0) return true;
+  if (role === "Student") return assignedTo.includes("students");
+  if (role === "Faculty") return assignedTo.includes("faculty");
+  return true;
+};
+
+const getEventDateTime = (event: CalendarEvent) => {
+  const time = event.time || "23:59";
+  const eventDateTime = new Date(`${event.date}T${time}`);
+  return Number.isNaN(eventDateTime.getTime())
+    ? new Date(`${event.date}T23:59`)
+    : eventDateTime;
+};
+
+const isPastEvent = (event: CalendarEvent, now: Date) =>
+  getEventDateTime(event).getTime() < now.getTime();
+
+const formatEventTime = (time?: string) => {
+  if (!time) return "";
+  const [hourValue, minute = "00"] = time.split(":");
+  const hour = Number(hourValue);
+  if (Number.isNaN(hour)) return time;
+  const period = hour >= 12 ? "PM" : "AM";
+  const displayHour = hour % 12 || 12;
+  return `${displayHour}:${minute.padStart(2, "0")} ${period}`;
+};
+
+const getTimeParts = (time: string) => {
+  const [hourValue, minuteValue = "00"] = time.split(":");
+  const hour = Number(hourValue || "9");
+  const period = hour >= 12 ? "PM" : "AM";
+  return {
+    hour: String(hour % 12 || 12),
+    minute: minuteValue.padStart(2, "0"),
+    period,
+  };
+};
+
+const buildTimeValue = (hourValue: string, minuteValue: string, period: string) => {
+  let hour = Number(hourValue);
+  if (period === "PM" && hour < 12) hour += 12;
+  if (period === "AM" && hour === 12) hour = 0;
+  return `${String(hour).padStart(2, "0")}:${minuteValue.padStart(2, "0")}`;
+};
+
 const SchedulePage = () => {
+  const router = useRouter();
   const [currentView, setCurrentView] = useState<ViewMode>("month");
   const [focusDate, setFocusDate] = useState<Date>(new Date());
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [events, setEvents] = useState<CalendarEvent[]>(initialEvents);
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [searchTerm, setSearchTerm] = useState("");
   const [showEventModal, setShowEventModal] = useState(false);
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showEventDetailModal, setShowEventDetailModal] = useState(false);
@@ -114,7 +167,7 @@ const SchedulePage = () => {
   const [eventForm, setEventForm] = useState({
     title: "",
     date: "",
-    time: "",
+    time: "09:00",
     meatingLink: "",
     color: "yellow" as CalendarEvent["color"],
     assignedTo: [] as string[],
@@ -140,17 +193,33 @@ const SchedulePage = () => {
     fetchEvents();
   }, [user]);
 
+  useEffect(() => {
+    const query = router.query.q;
+    setSearchTerm(typeof query === "string" ? query : "");
+  }, [router.query.q]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTime(new Date()), 60000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const filteredEvents = useMemo(() => {
-    // Start with color filtering
-    let base = selectedColors.length === 0 ? events : events.filter((event) => selectedColors.includes(event.color));
+    const colorFiltered =
+      selectedColors.length === 0
+        ? events
+        : events.filter((event) => selectedColors.includes(event.color));
+    const query = searchTerm.trim().toLowerCase();
 
-    // If current user is a Student, hide events assigned to faculty
-    if (user?.role === "Student") {
-      base = base.filter((event) => !(event.assignedTo && event.assignedTo.includes("faculty")));
-    }
-
-    return base;
-  }, [events, selectedColors, user]);
+    return colorFiltered.filter(
+      (event) =>
+        canUserSeeEvent(event, user?.role) && !isPastEvent(event, currentTime),
+    ).filter((event) => {
+      if (!query) return true;
+      return [event.title, event.date, event.time, event.meatingLink, ...(event.assignedTo || [])]
+        .filter(Boolean)
+        .some((value) => value!.toLowerCase().includes(query));
+    });
+  }, [events, selectedColors, user, currentTime, searchTerm]);
 
   const eventsByDate = useMemo(
     () => groupEventsByDate(filteredEvents),
@@ -246,7 +315,7 @@ const SchedulePage = () => {
     setEventForm({
       title: "",
       date: "",
-      time: "",
+      time: "09:00",
       meatingLink: "",
       color: "yellow",
       assignedTo: [],
@@ -272,6 +341,43 @@ const SchedulePage = () => {
       setEventForm((prev) => ({ ...prev, assignedTo: JSON.parse(value) }));
     } else {
       setEventForm((prev) => ({ ...prev, [field]: value }));
+    }
+  };
+
+  const handleTimePartChange = (
+    part: "hour" | "minute" | "period",
+    value: string,
+  ) => {
+    const parts = getTimeParts(eventForm.time);
+    const nextParts = { ...parts, [part]: value };
+    setEventForm((prev) => ({
+      ...prev,
+      time: buildTimeValue(nextParts.hour, nextParts.minute, nextParts.period),
+    }));
+  };
+
+  const handleDeleteEvent = async () => {
+    const id = selectedEvent?._id || selectedEvent?.id;
+    if (!id) return;
+
+    try {
+      const response = await fetch("/api/events", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+
+      if (!response.ok) {
+        console.error("Failed to delete event");
+        return;
+      }
+
+      setEvents((current) =>
+        current.filter((event) => (event._id || event.id) !== id),
+      );
+      handleCloseEventDetailModal();
+    } catch (error) {
+      console.error("Error deleting event:", error);
     }
   };
 
@@ -328,11 +434,9 @@ const SchedulePage = () => {
       } ${focusDate.getDate()}, ${focusDate.getFullYear()}`;
     return dayLabel;
   }, [currentView, focusDate, weekDays]);
-  const userRole = localStorage.getItem("role")?.toLowerCase();
   const renderEventChip = (event: CalendarEvent) => (
-    <>{ userRole !== "student" || !(event.assignedTo && event.assignedTo.includes("faculty")) &&
       <button
-        key={event.id}
+        key={event._id || event.id || `${event.date}-${event.title}-${event.time || ""}`}
         onClick={() => handleEventClick(event)}
         className={`mt-1 text-[11px] font-medium px-2 py-1 rounded w-full text-left hover:opacity-80 transition-opacity ${eventColorStyles[event.color]
           }`}
@@ -341,8 +445,8 @@ const SchedulePage = () => {
           <span>{eventColorEmojis[event.color]}</span>
           <span>{event.title}</span>
         </div>
-        {event.time && <div className="text-[10px] opacity-80">{event.time}</div>}
-      </button>}</>
+        {event.time && <div className="text-[10px] opacity-80">{formatEventTime(event.time)}</div>}
+      </button>
   );
 
   const MonthView = () => (
@@ -461,7 +565,7 @@ const SchedulePage = () => {
                     ) : (
                       matchingEvents.map((event) => (
                         <div
-                          key={event.id}
+                          key={event._id || event.id || `${event.date}-${event.title}-${event.time || ""}`}
                           className={`px-3 py-2 rounded-lg text-sm font-medium ${eventColorStyles[event.color]
                             }`}
                         >
@@ -471,7 +575,7 @@ const SchedulePage = () => {
                           </div>
                           {event.time && (
                             <div className="text-[11px] opacity-80">
-                              {event.time}
+                              {formatEventTime(event.time)}
                             </div>
                           )}
                         </div>
@@ -495,7 +599,7 @@ const SchedulePage = () => {
           )}
           {dayEvents.map((event) => (
             <div
-              key={event.id}
+              key={event._id || event.id || `${event.date}-${event.title}-${event.time || ""}`}
               className={`px-3 py-2 rounded-lg ${eventColorStyles[event.color]
                 }`}
             >
@@ -504,7 +608,7 @@ const SchedulePage = () => {
                 <span>{event.title}</span>
               </div>
               {event.time && (
-                <div className="text-[11px] opacity-80">{event.time}</div>
+                <div className="text-[11px] opacity-80">{formatEventTime(event.time)}</div>
               )}
             </div>
           ))}
@@ -697,12 +801,38 @@ const SchedulePage = () => {
                 <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                   Time
                 </label>
-                <input
-                  type="time"
-                  value={eventForm.time}
-                  onChange={(e) => handleFormChange("time", e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                />
+                <div className="grid grid-cols-3 gap-3">
+                  <select
+                    value={getTimeParts(eventForm.time).hour}
+                    onChange={(e) => handleTimePartChange("hour", e.target.value)}
+                    className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                  >
+                    {Array.from({ length: 12 }, (_, index) => String(index + 1)).map((hour) => (
+                      <option key={hour} value={hour}>
+                        {hour}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={getTimeParts(eventForm.time).minute}
+                    onChange={(e) => handleTimePartChange("minute", e.target.value)}
+                    className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                  >
+                    {["00", "15", "30", "45"].map((minute) => (
+                      <option key={minute} value={minute}>
+                        {minute}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={getTimeParts(eventForm.time).period}
+                    onChange={(e) => handleTimePartChange("period", e.target.value)}
+                    className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="AM">AM</option>
+                    <option value="PM">PM</option>
+                  </select>
+                </div>
               </div>
 
               <div>
@@ -995,7 +1125,7 @@ const SchedulePage = () => {
                       Time
                     </label>
                     <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                      {selectedEvent.time}
+                      {formatEventTime(selectedEvent.time)}
                     </div>
                   </div>
                 )}
@@ -1038,6 +1168,13 @@ const SchedulePage = () => {
               )}
 
               <div className="flex gap-3 pt-4">
+                <button
+                  onClick={handleDeleteEvent}
+                  className="flex-1 px-4 py-2.5 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 font-semibold transition-colors inline-flex items-center justify-center gap-2"
+                >
+                  <Trash2 size={16} />
+                  Delete
+                </button>
                 <button
                   onClick={handleCloseEventDetailModal}
                   className="flex-1 px-4 py-2.5 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-semibold transition-colors"

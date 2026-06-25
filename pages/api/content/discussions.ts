@@ -1,5 +1,6 @@
 import { connectDB } from "@/data/database/mangodb";
 import Discussion from "@/data/models/discussion";
+import { getRequestUser, requireRoles } from "@/utils/apiAuth";
 import type { NextApiRequest, NextApiResponse } from "next";
 
 type ResponseData = {
@@ -15,8 +16,11 @@ export default async function handler(
   try {
     await connectDB();
 
-    const userRole = req.headers["x-user-role"] as string;
-    const userEmail = req.headers["x-user-email"] as string;
+    const currentUser = getRequestUser(req);
+
+    if (!currentUser) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
 
     if (req.method === "GET") {
       const { course } = req.query;
@@ -24,12 +28,7 @@ export default async function handler(
       const discussions = await Discussion.find(query);
       return res.status(200).json({ success: true, data: discussions });
     } else if (req.method === "POST") {
-      // Only Admin and Faculty can create discussions
-      if (userRole !== "Superadmin" && userRole !== "Admin" && userRole !== "Faculty") {
-        return res
-          .status(403)
-          .json({ error: "Only Admin and Faculty can create discussions" });
-      }
+      if (!requireRoles(req, res, ["Superadmin", "Admin", "Faculty"])) return;
 
       const { title, content, course, visibleTo } = req.body;
 
@@ -41,8 +40,8 @@ export default async function handler(
         title,
         content,
         course,
-        createdBy: userEmail,
-        createdByRole: userRole,
+        createdBy: currentUser.email,
+        createdByRole: currentUser.role,
         visibleTo: visibleTo || [],
         replies: [],
       });
@@ -58,7 +57,11 @@ export default async function handler(
 
       const discussion = await Discussion.findById(id);
 
-      if (discussion?.createdBy !== userEmail && userRole !== "Superadmin" && userRole !== "Admin") {
+      if (
+        discussion?.createdBy !== currentUser.email &&
+        currentUser.role !== "Superadmin" &&
+        currentUser.role !== "Admin"
+      ) {
         return res
           .status(403)
           .json({ error: "Only creator or Admin can update discussion" });
@@ -81,7 +84,11 @@ export default async function handler(
 
       const discussion = await Discussion.findById(id);
 
-      if (discussion?.createdBy !== userEmail && userRole !== "Superadmin" && userRole !== "Admin") {
+      if (
+        discussion?.createdBy !== currentUser.email &&
+        currentUser.role !== "Superadmin" &&
+        currentUser.role !== "Admin"
+      ) {
         return res
           .status(403)
           .json({ error: "Only creator or Admin can delete discussion" });

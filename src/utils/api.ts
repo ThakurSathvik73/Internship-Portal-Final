@@ -23,6 +23,16 @@ export async function apiCall(
   return response.json();
 }
 
+export function getAuthHeaders(extraHeaders: HeadersInit = {}): HeadersInit {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+
+  return {
+    "Content-Type": "application/json",
+    ...(token && { Authorization: `Bearer ${token}` }),
+    ...extraHeaders,
+  };
+}
+
 export async function getCourses() {
   return apiCall("/api/courses");
 }
@@ -45,6 +55,13 @@ export async function deleteCourse(id: string) {
   return apiCall("/api/courses", {
     method: "DELETE",
     body: JSON.stringify({ id }),
+  });
+}
+
+export async function enrollCourse(id: string) {
+  return apiCall("/api/courses", {
+    method: "PATCH",
+    body: JSON.stringify({ id, action: "enroll" }),
   });
 }
 

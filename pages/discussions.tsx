@@ -4,6 +4,7 @@ import { Menu, MessageSquare, Plus, Search, X, User, Clock } from "lucide-react"
 import React, { useEffect, useState } from "react";
 import Head from "next/head";
 import { useAuth } from "@/contexts/AuthContext";
+import { useRouter } from "next/router";
 
 type Discussion = {
   id: string;
@@ -16,6 +17,7 @@ type Discussion = {
 
 const Discussions = () => {
   const { user } = useAuth();
+  const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [showNewDiscussionModal, setShowNewDiscussionModal] = useState(false);
@@ -28,6 +30,11 @@ const Discussions = () => {
     course: "",
     content: "",
   });
+
+  useEffect(() => {
+    const query = router.query.q;
+    setSearchTerm(typeof query === "string" ? query : "");
+  }, [router.query.q]);
 
   const mapDiscussion = (item: any): Discussion => ({
     id: item._id,

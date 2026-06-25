@@ -1,5 +1,6 @@
 import { connectDB } from "@/data/database/mangodb";
 import Note from "@/data/models/note";
+import { getRequestUser, requireRoles } from "@/utils/apiAuth";
 import type { NextApiRequest, NextApiResponse } from "next";
 
 type ResponseData = {
@@ -15,8 +16,11 @@ export default async function handler(
   try {
     await connectDB();
 
-    const userRole = req.headers["x-user-role"] as string;
-    const userEmail = req.headers["x-user-email"] as string;
+    const currentUser = getRequestUser(req);
+
+    if (!currentUser) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
 
     if (req.method === "GET") {
       const { course } = req.query;
@@ -24,12 +28,7 @@ export default async function handler(
       const notes = await Note.find(query);
       return res.status(200).json({ success: true, data: notes });
     } else if (req.method === "POST") {
-      // Only Admin and Faculty can create notes
-      if (userRole !== "Superadmin" && userRole !== "Admin" && userRole !== "Faculty") {
-        return res
-          .status(403)
-          .json({ error: "Only Admin and Faculty can create notes" });
-      }
+      if (!requireRoles(req, res, ["Superadmin", "Admin", "Faculty"])) return;
 
       const { title, content, course, topic, fileUrl, assignedTo } = req.body;
 
@@ -43,18 +42,13 @@ export default async function handler(
         course,
         topic,
         fileUrl,
-        createdBy: userEmail,
+        createdBy: currentUser.email,
         assignedTo: assignedTo || [],
       });
 
       return res.status(201).json({ success: true, data: newNote });
     } else if (req.method === "PUT") {
-      // Only Admin and Faculty can update notes
-      if (userRole !== "Superadmin" && userRole !== "Admin" && userRole !== "Faculty") {
-        return res
-          .status(403)
-          .json({ error: "Only Admin and Faculty can update notes" });
-      }
+      if (!requireRoles(req, res, ["Superadmin", "Admin", "Faculty"])) return;
 
       const { id, ...updateData } = req.body;
 
@@ -68,12 +62,7 @@ export default async function handler(
 
       return res.status(200).json({ success: true, data: updatedNote });
     } else if (req.method === "DELETE") {
-      // Only Admin and Faculty can delete notes
-      if (userRole !== "Superadmin" && userRole !== "Admin" && userRole !== "Faculty") {
-        return res
-          .status(403)
-          .json({ error: "Only Admin and Faculty can delete notes" });
-      }
+      if (!requireRoles(req, res, ["Superadmin", "Admin", "Faculty"])) return;
 
       const { id } = req.body;
 

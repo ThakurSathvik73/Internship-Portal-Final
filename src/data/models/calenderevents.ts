@@ -15,7 +15,7 @@ const eventSchema = new Schema({
     type: String,
   },
   meatingLink: {
-    type: [String],
+    type: String,
   },
   color: {
     type: String,
