@@ -4,6 +4,7 @@ import { Menu, Download, Search, X, FileText, Calendar, ArrowDown } from "lucide
 import React, { useEffect, useState } from "react";
 import Head from "next/head";
 import { useAuth } from "@/contexts/AuthContext";
+import { useRouter } from "next/router";
 
 type DownloadItem = {
   _id: string;
@@ -15,11 +16,17 @@ type DownloadItem = {
 
 const DownloadsPage = () => {
   const { user } = useAuth();
+  const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [downloads, setDownloads] = useState<DownloadItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const query = router.query.q;
+    setSearchTerm(typeof query === "string" ? query : "");
+  }, [router.query.q]);
 
   useEffect(() => {
     const fetchResources = async () => {

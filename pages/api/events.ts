@@ -13,17 +13,23 @@ type CalendarEvent = {
   assignedTo?: string[];
 };
 
-// In-memory storage (replace with actual database)
-let events: CalendarEvent[] = [];
+const normalizeAssignedTo = (assignedTo: unknown): string[] => {
+  if (!Array.isArray(assignedTo)) return [];
+  return assignedTo
+    .map((target) => String(target).trim().toLowerCase())
+    .filter(Boolean);
+};
 
 const normalizeEvent = (event: any): CalendarEvent => ({
   _id: String(event._id || ""),
   title: event.title,
   date: event.date,
   time: event.time,
-  meatingLink: event.meatingLink,
-  color: event.color,
-  assignedTo: event.assignedTo || [],
+  meatingLink: Array.isArray(event.meatingLink)
+    ? event.meatingLink[0] || ""
+    : event.meatingLink || "",
+  color: event.color || "yellow",
+  assignedTo: normalizeAssignedTo(event.assignedTo),
 });
 
 export default async function handler(
@@ -37,27 +43,27 @@ export default async function handler(
     return res.status(500).json({ error: "Database connection failed" });
   }
   if (req.method === "GET") {
-    // Fetch all events
-    events = await calenderevents.find();
+    const events = await calenderevents.find().sort({ date: 1, time: 1 });
     return res.status(200).json(events.map(normalizeEvent));
   }
 
   if (req.method === "POST") {
     // Create new event
     const { title, date, time, meatingLink, color, assignedTo } = req.body;
+    const normalizedAssignedTo = normalizeAssignedTo(assignedTo);
 
     if (!title || !date) {
       return res.status(400).json({ error: "Title and date are required" });
     }
     const newEvent = await calenderevents.create({
-      title,
+      title: String(title).trim(),
       date,
-      time,
-      meatingLink,
-      color,
-      assignedTo: assignedTo || [],
+      time: time || "",
+      meatingLink: meatingLink || "",
+      color: color || "yellow",
+      assignedTo: normalizedAssignedTo,
     });
-    const targetRoles = (assignedTo || []).flatMap((target: string) => {
+    const targetRoles = normalizedAssignedTo.flatMap((target: string) => {
       if (target === "faculty") return ["Faculty"];
       if (target === "students") return ["Student"];
       return [];

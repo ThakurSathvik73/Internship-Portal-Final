@@ -9,6 +9,7 @@ export type AuthTokenUser = {
 };
 
 type AuthTokenPayload = AuthTokenUser & {
+  iat: number;
   exp: number;
 };
 
@@ -30,17 +31,23 @@ function sign(value: string): string {
 }
 
 export function createAuthToken(user: AuthTokenUser): string {
-  const payload = encode({ ...user, exp: Date.now() + TOKEN_TTL_MS });
-  return `${payload}.${sign(payload)}`;
+  const header = encode({ alg: "HS256", typ: "JWT" });
+  const payload = encode({
+    ...user,
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor((Date.now() + TOKEN_TTL_MS) / 1000),
+  });
+  const unsignedToken = `${header}.${payload}`;
+  return `${unsignedToken}.${sign(unsignedToken)}`;
 }
 
 export function verifyAuthToken(token?: string): AuthTokenUser | null {
   if (!token) return null;
 
-  const [payload, signature] = token.replace(/^Bearer\s+/i, "").split(".");
-  if (!payload || !signature) return null;
+  const [header, payload, signature] = token.replace(/^Bearer\s+/i, "").split(".");
+  if (!header || !payload || !signature) return null;
 
-  const expectedSignature = sign(payload);
+  const expectedSignature = sign(`${header}.${payload}`);
   const signatureBuffer = Buffer.from(signature);
   const expectedSignatureBuffer = Buffer.from(expectedSignature);
   if (
@@ -51,8 +58,16 @@ export function verifyAuthToken(token?: string): AuthTokenUser | null {
   }
 
   try {
+    const decodedHeader = JSON.parse(Buffer.from(header, "base64url").toString()) as {
+      alg?: string;
+      typ?: string;
+    };
+    if (decodedHeader.alg !== "HS256" || decodedHeader.typ !== "JWT") return null;
+
     const data = JSON.parse(Buffer.from(payload, "base64url").toString()) as AuthTokenPayload;
-    if (!data.email || !data.role || !data.name || Date.now() > data.exp) return null;
+    if (!data.email || !data.role || !data.name || Math.floor(Date.now() / 1000) > data.exp) {
+      return null;
+    }
 
     return {
       email: data.email,

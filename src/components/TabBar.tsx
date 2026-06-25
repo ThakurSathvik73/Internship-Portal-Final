@@ -1,37 +1,50 @@
 import { Bell, Check, Search, X } from "lucide-react";
-import { useState } from "react";
+import { useRouter } from "next/router";
+import { useEffect, useState } from "react";
 import { ModeToggle } from "./theme/ModeToggle";
 
 type Props = {};
 
+const searchTargets = [
+  { label: "Dashboard", path: "/dashbord", keywords: ["home", "overview"] },
+  { label: "Tasks", path: "/tasks", keywords: ["task", "pending tasks", "todo"] },
+  { label: "Assignments", path: "/assignments", keywords: ["assignment", "submission"] },
+  { label: "Courses", path: "/courses", keywords: ["course", "class"] },
+  { label: "Resources", path: "/resources", keywords: ["resource", "downloads", "files"] },
+  { label: "Downloads", path: "/downloads", keywords: ["download", "file"] },
+  { label: "Schedule", path: "/schedule", keywords: ["calendar", "meeting", "classes"] },
+  { label: "Discussions", path: "/discussions", keywords: ["discussion", "doubt", "chat"] },
+  { label: "Recordings", path: "/recordings", keywords: ["recording", "video"] },
+  { label: "Notes", path: "/notes", keywords: ["note", "study material"] },
+  { label: "Students", path: "/students", keywords: ["student"] },
+  { label: "Users", path: "/users", keywords: ["user", "admin", "faculty"] },
+  { label: "Settings", path: "/settings", keywords: ["setting", "preferences"] },
+];
+
 const TabBar = (props: Props) => {
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [notifications, setNotifications] = useState([
-    {
-      id: 1,
-      title: "Assignment reminder",
-      message: "React Project Submission is due today.",
-      time: "Today",
-      read: false,
-    },
-    {
-      id: 2,
-      title: "Class update",
-      message: "Your next online class is available in Upcoming Classes.",
-      time: "Tomorrow",
-      read: false,
-    },
-    {
-      id: 3,
-      title: "Discussion reply",
-      message: "A faculty member replied to your course discussion.",
-      time: "2 days ago",
-      read: true,
-    },
-  ]);
+  const [notifications, setNotifications] = useState<
+    { id: number; title: string; message: string; time: string; read: boolean }[]
+  >([]);
+
+  useEffect(() => {
+    const query = router.query.q;
+    setSearchQuery(typeof query === "string" ? query : "");
+  }, [router.query.q]);
 
   const unreadCount = notifications.filter((notification) => !notification.read).length;
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const suggestions = normalizedSearchQuery
+    ? searchTargets.filter((target) => {
+        const searchableValues = [target.label, target.path, ...target.keywords];
+        return searchableValues.some((value) =>
+          value.toLowerCase().includes(normalizedSearchQuery),
+        );
+      }).slice(0, 6)
+    : [];
 
   const markAllAsRead = () => {
     setNotifications((current) =>
@@ -45,66 +58,96 @@ const TabBar = (props: Props) => {
     );
   };
 
+  const updateSearchQuery = (query: string, pathname = router.pathname) => {
+    const nextQuery = { ...router.query };
+
+    if (query) {
+      nextQuery.q = query;
+    } else {
+      delete nextQuery.q;
+    }
+
+    router.push(
+      {
+        pathname,
+        query: nextQuery,
+      },
+      undefined,
+      { shallow: pathname === router.pathname },
+    );
+  };
+
+  const selectSuggestion = (label: string, path: string) => {
+    setSearchQuery(label);
+    setShowSuggestions(false);
+    updateSearchQuery(label, path);
+  };
+
+  const handleSearchSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const query = searchQuery.trim();
+    const exactMatch = searchTargets.find(
+      (target) => target.label.toLowerCase() === query.toLowerCase(),
+    );
+    const target = exactMatch || suggestions[0];
+
+    setShowSuggestions(false);
+    updateSearchQuery(query, target?.path);
+  };
+
   return (
     <div className="w-full bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 flex items-center justify-between h-16.25">
       {/* Search Bar */}
-      <div className="flex items-center gap-3 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-72 dark:bg-gray-800">
+      <form
+        onSubmit={handleSearchSubmit}
+        className="relative flex items-center gap-3 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-72 dark:bg-gray-800"
+      >
         <Search size={18} className="text-orange-500" />
         <input
           type="text"
           placeholder="Search"
           value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+          onChange={(e) => {
+            setSearchQuery(e.target.value);
+            setShowSuggestions(true);
+          }}
+          onFocus={() => setShowSuggestions(true)}
+          onBlur={() => {
+            window.setTimeout(() => setShowSuggestions(false), 120);
+          }}
           className="flex-1 outline-none text-sm text-gray-600 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 bg-transparent"
         />
-        <div className="flex items-center gap-2">
-          <svg
-            width="15"
-            height="15"
-            viewBox="0 0 15 15"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={() => {
+              setSearchQuery("");
+              setShowSuggestions(false);
+              updateSearchQuery("");
+            }}
+            className="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+            aria-label="Clear search"
           >
-            <path
-              d="M10.4564 2.78839H10.4564C10.8878 2.78839 11.3015 2.95976 11.6065 3.2648C11.9116 3.56984 12.083 3.98356 12.083 4.41495V4.41495C12.083 4.84634 11.9116 5.26006 11.6065 5.5651C11.3015 5.87014 10.8878 6.04151 10.4564 6.04151H8.82983V4.41495C8.82983 3.98356 9.0012 3.56984 9.30624 3.2648C9.61128 2.95976 10.025 2.78839 10.4564 2.78839V2.78839Z"
-              stroke="#FF4B00"
-              strokeWidth="1.39419"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <path
-              d="M6.0415 6.0415H4.41494C3.98355 6.0415 3.56983 5.87013 3.26479 5.5651C2.95975 5.26006 2.78838 4.84633 2.78838 4.41494V4.41494C2.78838 3.98355 2.95975 3.56983 3.26479 3.26479C3.56983 2.95975 3.98355 2.78838 4.41494 2.78838H4.41494C4.84633 2.78838 5.26006 2.95975 5.5651 3.26479C5.87013 3.56983 6.0415 3.98355 6.0415 4.41494V6.0415Z"
-              stroke="#FF4B00"
-              strokeWidth="1.39419"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <path
-              d="M8.82983 8.8299H10.4564C10.8878 8.8299 11.3015 9.00126 11.6065 9.3063C11.9116 9.61134 12.083 10.0251 12.083 10.4565V10.4565C12.083 10.8878 11.9116 11.3016 11.6065 11.6066C11.3015 11.9116 10.8878 12.083 10.4564 12.083H10.4564C10.025 12.083 9.61128 11.9116 9.30624 11.6066C9.0012 11.3016 8.82983 10.8878 8.82983 10.4565V8.8299Z"
-              stroke="#FF4B00"
-              strokeWidth="1.39419"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <path
-              d="M4.41494 12.083H4.41494C3.98355 12.083 3.56983 11.9117 3.26479 11.6066C2.95975 11.3016 2.78838 10.8879 2.78838 10.4565V10.4565C2.78838 10.0251 2.95975 9.61135 3.26479 9.30631C3.56983 9.00127 3.98355 8.8299 4.41494 8.8299H6.0415V10.4565C6.0415 10.8879 5.87013 11.3016 5.5651 11.6066C5.26006 11.9117 4.84633 12.083 4.41494 12.083V12.083Z"
-              stroke="#FF4B00"
-              strokeWidth="1.39419"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <path
-              d="M8.82989 6.0415H6.0415V8.82989H8.82989V6.0415Z"
-              stroke="#FF4B00"
-              strokeWidth="1.39419"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-
-          <span className="text-orange-500 font-semibold text-sm">F</span>
-        </div>
-      </div>
+            <X size={14} className="text-gray-500" />
+          </button>
+        )}
+        {showSuggestions && suggestions.length > 0 && (
+          <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
+            {suggestions.map((suggestion) => (
+              <button
+                key={suggestion.path}
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => selectSuggestion(suggestion.label, suggestion.path)}
+                className="flex w-full items-center justify-between px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-orange-50 hover:text-orange-600 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                <span>{suggestion.label}</span>
+                <span className="text-xs text-gray-400">{suggestion.path}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </form>
 
       {/* Right Side - Notifications & User Profile */}
       <div className="flex items-center gap-4">
@@ -126,6 +169,13 @@ const TabBar = (props: Props) => {
           </button>
 
           {isNotificationsOpen && (
+            <>
+            <button
+              type="button"
+              className="fixed inset-0 z-40 cursor-default"
+              onClick={() => setIsNotificationsOpen(false)}
+              aria-label="Close notifications"
+            />
             <div className="absolute right-0 mt-3 w-80 max-w-[calc(100vw-2rem)] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-50">
               <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
                 <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
@@ -184,6 +234,7 @@ const TabBar = (props: Props) => {
                 )}
               </div>
             </div>
+            </>
           )}
         </div>
 

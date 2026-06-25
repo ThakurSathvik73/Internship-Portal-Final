@@ -33,6 +33,7 @@ import { Bar, BarChart, ResponsiveContainer, XAxis } from "recharts";
 import Head from "next/head";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/router";
+import { getAuthHeaders } from "@/utils/api";
 
 type Props = {};
 interface TodoProps {
@@ -66,9 +67,21 @@ const formatGradeLabel = (score: number) => {
   return "F";
 };
 
+const matchesSearch = (query: string, ...values: Array<unknown>) => {
+  if (!query) return true;
+
+  return values.some((value) =>
+    String(value ?? "").toLowerCase().includes(query),
+  );
+};
+
 const dashbord = (props: Props) => {
   const { user } = useAuth();
   const router = useRouter();
+  const searchTerm = React.useMemo(() => {
+    const query = router.query.q;
+    return typeof query === "string" ? query.trim().toLowerCase() : "";
+  }, [router.query.q]);
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
   const [downloadProgress, setDownloadProgress] = React.useState<{
     [key: number]: number;
@@ -258,11 +271,53 @@ const dashbord = (props: Props) => {
   }, []);
 
   React.useEffect(() => {
-    const fetchTasks = async () => {
+    const fetchTodoList = async () => {
       try {
-        const response = await fetch(`/api/tasks?role=${user?.role}&email=${user?.email}`);
+        const response = await fetch("/api/gettodolist");
 
         if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+          throw new Error("Response is not JSON");
+        }
+
+        const data = await response.json();
+        if (data.todolist) {
+          setTodoList(data.todolist);
+        }
+      } catch (error) {
+        console.error("Failed to fetch todo list:", error);
+        setTodoList([]);
+      }
+    };
+    fetchTodoList();
+  }, []);
+
+  React.useEffect(() => {
+    if (!user?.email || !user?.role) {
+      setAssignedTasks([]);
+      return;
+    }
+
+    const fetchTasks = async () => {
+      try {
+        const params = new URLSearchParams({
+          role: user.role,
+          email: user.email,
+          scope: "dashboard",
+        });
+        const response = await fetch(`/api/tasks?${params.toString()}`, {
+          headers: getAuthHeaders(),
+        });
+
+        if (!response.ok) {
+          if (response.status === 401 || response.status === 403) {
+            setAssignedTasks([]);
+            return;
+          }
           throw new Error(`HTTP error! status: ${response.status}`);
         }
 
@@ -281,14 +336,29 @@ const dashbord = (props: Props) => {
       }
     };
     fetchTasks();
-  }, [user]);
+  }, [user?.email, user?.role]);
 
   React.useEffect(() => {
+    if (!user?.email || !user?.role) {
+      setRecentGrades([]);
+      return;
+    }
+
     const fetchRecentGrades = async () => {
       try {
-        const response = await fetch(`/api/assignments?role=${user?.role || ""}&email=${user?.email || ""}`);
+        const params = new URLSearchParams({
+          role: user.role,
+          email: user.email,
+        });
+        const response = await fetch(`/api/assignments?${params.toString()}`, {
+          headers: getAuthHeaders(),
+        });
 
         if (!response.ok) {
+          if (response.status === 401 || response.status === 403) {
+            setRecentGrades([]);
+            return;
+          }
           throw new Error(`HTTP error! status: ${response.status}`);
         }
 
@@ -377,7 +447,11 @@ const dashbord = (props: Props) => {
 
     const fetchAnnouncements = async () => {
       try {
-        const response = await fetch(`/api/announcements?role=${user.role}&email=${user.email}`);
+        const params = new URLSearchParams({
+          role: user.role,
+          email: user.email,
+        });
+        const response = await fetch(`/api/announcements?${params.toString()}`);
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -408,6 +482,40 @@ const dashbord = (props: Props) => {
           attendanceData.length,
       )
     : 0;
+  const filteredAnnouncements = announcements.filter((announcement) =>
+    matchesSearch(
+      searchTerm,
+      announcement.title,
+      announcement.description,
+      announcement.time,
+    ),
+  );
+  const filteredRecentGrades = recentGrades.filter((grade) =>
+    matchesSearch(searchTerm, grade.subject, grade.grade, grade.score),
+  );
+  const filteredResources = resources.filter((resource) =>
+    matchesSearch(
+      searchTerm,
+      resource.name,
+      resource.size,
+      resource.desc,
+      resource.type,
+    ),
+  );
+  const visibleAssignments = (assignedTasks.length > 0 ? assignedTasks : assignments).filter(
+    (assignment) =>
+      matchesSearch(
+        searchTerm,
+        assignment.title,
+        assignment.subject,
+        assignment.course,
+        assignment.status,
+        assignment.dueDate,
+      ),
+  );
+  const filteredTodoList = todoList.filter((item) =>
+    matchesSearch(searchTerm, item.task, item.date),
+  );
 
   return (
     <>
@@ -587,7 +695,7 @@ const dashbord = (props: Props) => {
                     Announcements
                   </h3>
                   <div className="space-y-3">
-                    {announcements.length > 0 ? announcements.map((announcement, index) => (
+                    {filteredAnnouncements.length > 0 ? filteredAnnouncements.map((announcement, index) => (
                       <div
                         key={index}
                         onClick={() => handleAnnouncementClick?.(announcement)}
@@ -636,7 +744,7 @@ const dashbord = (props: Props) => {
                       </div>
                     )) : (
                       <p className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
-                        No announcements available.
+                        {searchTerm ? "No announcements found matching your search." : "No announcements available."}
                       </p>
                     )}
                   </div>
@@ -733,8 +841,8 @@ const dashbord = (props: Props) => {
                   </div>
 
                   <div className="space-y-3">
-                    {recentGrades.length > 0 ? (
-                      recentGrades.map((grade, index) => (
+                    {filteredRecentGrades.length > 0 ? (
+                      filteredRecentGrades.map((grade, index) => (
                         <div
                           key={index}
                           className="flex items-center justify-between p-3 rounded-lg transition-all duration-200 cursor-pointer group active:scale-95 hover:bg-gray-50 dark:hover:bg-gray-800"
@@ -762,7 +870,7 @@ const dashbord = (props: Props) => {
                       <div className="py-8 text-center">
                         <Award className="mx-auto mb-3 text-gray-400" size={28} />
                         <p className="text-sm text-gray-500 dark:text-gray-400">
-                          No recent grades available.
+                          {searchTerm ? "No grades found matching your search." : "No recent grades available."}
                         </p>
                       </div>
                     )}
@@ -802,7 +910,7 @@ const dashbord = (props: Props) => {
                     </button>
                   </div>
                   <div className="space-y-4">
-                    {resources.map((resource, idx) => (
+                    {filteredResources.length > 0 ? filteredResources.map((resource, idx) => (
                       <div key={idx} className="flex flex-col gap-2">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3 min-w-0">
@@ -906,7 +1014,11 @@ const dashbord = (props: Props) => {
                           </button>
                         </div>
                       </div>
-                    ))}
+                    )) : (
+                      <p className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                        {searchTerm ? "No resources found matching your search." : "No resources available."}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -916,9 +1028,9 @@ const dashbord = (props: Props) => {
                 <div className="rounded-xl p-4 lg:p-6 shadow-sm border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 transition-all duration-300 hover:shadow-lg">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                      Pending Assignments
+                      Pending Tasks
                     </h3>
-                    {(assignedTasks.length > 0 ? assignedTasks : assignments).length > 6 && (
+                    {visibleAssignments.length > 6 && (
                       <button
                         onClick={() => router.push("/tasks")}
                         className="text-xs font-medium transition-colors text-orange-500 hover:text-orange-600"
@@ -928,7 +1040,7 @@ const dashbord = (props: Props) => {
                     )}
                   </div>
                   <div className="space-y-3">
-                    {(assignedTasks.length > 0 ? assignedTasks : assignments).slice(0, 6).map((assignment, index) => (
+                    {visibleAssignments.length > 0 ? visibleAssignments.slice(0, 6).map((assignment, index) => (
                       <div
                         key={index}
                         onClick={() => {}}
@@ -977,7 +1089,11 @@ const dashbord = (props: Props) => {
                           </span>
                         </div>
                       </div>
-                    ))}
+                    )) : (
+                      <p className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                        {searchTerm ? "No tasks found matching your search." : "No pending tasks available."}
+                      </p>
+                    )}
                   </div>
                 </div>
                 {/* To Do List */}
@@ -996,7 +1112,7 @@ const dashbord = (props: Props) => {
                     </button>
                   </div>
                   <div className="space-y-3">
-                    {todoList.map((item, idx) => (
+                    {filteredTodoList.length > 0 ? filteredTodoList.map((item, idx) => (
                       <div key={idx} className="flex items-start gap-3">
                         <label className="mt-1 shrink-0 inline-flex items-center cursor-pointer group">
                           <input
@@ -1040,7 +1156,11 @@ const dashbord = (props: Props) => {
                           </p>
                         </div>
                       </div>
-                    ))}
+                    )) : (
+                      <p className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                        {searchTerm ? "No todos found matching your search." : "No todos available."}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>

@@ -4,6 +4,7 @@ import { Menu, Users, Search, GraduationCap, Mail, Award, X } from "lucide-react
 import React, { useEffect, useState } from "react";
 import Head from "next/head";
 import { useAuth } from "@/contexts/AuthContext";
+import { useRouter } from "next/router";
 
 type Student = {
   id: string;
@@ -18,6 +19,7 @@ type Student = {
 
 const StudentsPage = () => {
   const { user } = useAuth();
+  const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [students, setStudents] = useState<Student[]>([]);
@@ -47,6 +49,11 @@ const StudentsPage = () => {
 
     fetchStudents();
   }, [user?.email, user?.role]);
+
+  useEffect(() => {
+    const query = router.query.q;
+    setSearchTerm(typeof query === "string" ? query : "");
+  }, [router.query.q]);
 
   // Only Faculty can access this page
   if (user?.role !== "Faculty") {

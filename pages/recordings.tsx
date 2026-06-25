@@ -4,6 +4,7 @@ import { Menu, Video, Play, Download, Calendar, Clock, X, Search, Plus, Link as 
 import React, { useState, useEffect } from "react";
 import Head from "next/head";
 import { useAuth } from "@/contexts/AuthContext";
+import { useRouter } from "next/router";
 
 type Recording = {
   _id?: string;
@@ -20,6 +21,7 @@ type Recording = {
 
 const Recordings = () => {
   const { user } = useAuth();
+  const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [recordings, setRecordings] = useState<Recording[]>([]);
@@ -31,6 +33,11 @@ const Recordings = () => {
     course: "",
     description: "",
   });
+
+  useEffect(() => {
+    const query = router.query.q;
+    setSearchTerm(typeof query === "string" ? query : "");
+  }, [router.query.q]);
 
   useEffect(() => {
     fetchRecordings();

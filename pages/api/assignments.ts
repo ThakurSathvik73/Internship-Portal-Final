@@ -1,5 +1,6 @@
 import { connectDB } from "@/data/database/mangodb";
 import assignment from "@/data/models/assignment";
+import { requireRoles } from "@/utils/apiAuth";
 import type { NextApiRequest, NextApiResponse } from "next";
 
 type Assignment = {
@@ -28,14 +29,21 @@ export default async function handler(
 ) {
   try {
     await connectDB();
+    const currentUser = requireRoles(req, res, ["Superadmin", "Admin", "Faculty", "Student"]);
+    if (!currentUser) return;
 
     if (req.method === "GET") {
       assignments = await assignment.find();
 
-      console.log("Fetched assignments:", assignments);
-      return res.status(200).json({ success: true, data: assignments });
+      const filteredAssignments =
+        currentUser.role === "Student"
+          ? assignments.filter((item) => item.students?.includes(currentUser.email))
+          : assignments;
+
+      return res.status(200).json({ success: true, data: filteredAssignments });
     } else if (req.method === "POST") {
-      // Create new assignment
+      if (!requireRoles(req, res, ["Superadmin", "Admin", "Faculty"])) return;
+
       const { title, course, dueDate, students } = req.body;
 
       if (!title || !course || !dueDate) {
@@ -54,11 +62,19 @@ export default async function handler(
 
       res.status(201).json({ success: true, data: assignments });
     } else if (req.method === "PUT") {
-      // Update assignment
+      if (!requireRoles(req, res, ["Superadmin", "Admin", "Faculty", "Student"])) return;
+
       const { id, ...updateData } = req.body;
 
       if (!id) {
         return res.status(400).json({ error: "Assignment ID is required" });
+      }
+
+      if (currentUser.role === "Student") {
+        const existingAssignment = await assignment.findOne({ id });
+        if (!existingAssignment?.students?.includes(currentUser.email)) {
+          return res.status(403).json({ error: "Students can only update their own assignments" });
+        }
       }
 
       const updateAssignment = await assignment.findOneAndUpdate(
@@ -71,7 +87,8 @@ export default async function handler(
 
       res.status(200).json({ success: true, data: updateAssignment });
     } else if (req.method === "DELETE") {
-      // Delete assignment
+      if (!requireRoles(req, res, ["Superadmin", "Admin", "Faculty"])) return;
+
       const { id } = req.body;
 
       if (!id) {

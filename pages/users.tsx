@@ -4,6 +4,7 @@ import { Menu, Users, Search, Plus, X, Shield, GraduationCap, UserCheck, Mail, T
 import React, { useState, useEffect } from "react";
 import Head from "next/head";
 import { useAuth } from "@/contexts/AuthContext";
+import { useRouter } from "next/router";
 
 type User = {
   id: string;
@@ -16,6 +17,7 @@ type User = {
 
 const UsersPage = () => {
   const { user } = useAuth();
+  const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -45,6 +47,11 @@ const UsersPage = () => {
           console.error("Failed to fetch users", err);
         });
     }, [canManageUsers]);
+
+    useEffect(() => {
+      const query = router.query.q;
+      setSearchTerm(typeof query === "string" ? query : "");
+    }, [router.query.q]);
 
   // Only Admin and Superadmin can access this page
   if (!canManageUsers) {

@@ -70,6 +70,43 @@ for (let i = 0; i < CLASS_SUBJECTS.length; i++) {
   hour++;
 }
 
+type MeetingEvent = {
+  _id?: string;
+  title: string;
+  date: string;
+  time?: string;
+  meatingLink?: string;
+};
+
+type CalendarMeeting = {
+  id: string;
+  title: string;
+  start: Date;
+  end: Date;
+  resource: MeetingEvent;
+};
+
+const buildMeetingDate = (date: string, time?: string) => {
+  const meetingDate = new Date(`${date}T${time || "09:00"}`);
+  return Number.isNaN(meetingDate.getTime()) ? new Date(`${date}T09:00`) : meetingDate;
+};
+
+const getMeetingEnd = (event: MeetingEvent) => {
+  const end = buildMeetingDate(event.date, event.time || "23:59");
+  if (event.time) end.setHours(end.getHours() + 1);
+  return end;
+};
+
+const formatMeetingTime = (time?: string) => {
+  if (!time) return "";
+  const [hourValue, minute = "00"] = time.split(":");
+  const hour = Number(hourValue);
+  if (Number.isNaN(hour)) return time;
+  const period = hour >= 12 ? "PM" : "AM";
+  const displayHour = hour % 12 || 12;
+  return `${displayHour}:${minute.padStart(2, "0")} ${period}`;
+};
+
 /* -------------------- COUNTDOWN REMINDER -------------------- */
 function CountdownReminder({
   date,
@@ -125,6 +162,8 @@ export default function Dashboard() {
   const [showHolidayModal, setShowHolidayModal] = useState(false);
   const [holidayName, setHolidayName] = useState("");
   const [darkMode, setDarkMode] = useState(false);
+  const [meetings, setMeetings] = useState<CalendarMeeting[]>([]);
+  const [currentTime, setCurrentTime] = useState(new Date());
 
   const currentDate = new Date(year, month, 1);
 
@@ -133,6 +172,39 @@ export default function Dashboard() {
       Notification.requestPermission();
     }
   }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTime(new Date()), 60000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const fetchMeetings = async () => {
+      try {
+        const response = await fetch("/api/events");
+        if (!response.ok) return;
+        const data: MeetingEvent[] = await response.json();
+        setMeetings(
+          (Array.isArray(data) ? data : []).filter((event) => getMeetingEnd(event).getTime() >= currentTime.getTime()).map((event) => {
+            const start = buildMeetingDate(event.date, event.time);
+            const end = new Date(start);
+            end.setHours(start.getHours() + 1);
+            return {
+              id: event._id || `${event.date}-${event.title}-${event.time || ""}`,
+              title: event.time ? `${formatMeetingTime(event.time)} ${event.title}` : event.title,
+              start,
+              end,
+              resource: event,
+            };
+          }),
+        );
+      } catch (error) {
+        console.error("Failed to fetch meetings:", error);
+      }
+    };
+
+    fetchMeetings();
+  }, [currentTime]);
 
   const getHoliday = (date: Date) =>
     HOLIDAYS.find(
@@ -149,6 +221,15 @@ export default function Dashboard() {
     setSelectedDate(start);
     setShowScheduleModal(true);
   };
+
+  const selectedDateMeetings = selectedDate
+    ? meetings.filter(
+        (meeting) =>
+          meeting.start.getFullYear() === selectedDate.getFullYear() &&
+          meeting.start.getMonth() === selectedDate.getMonth() &&
+          meeting.start.getDate() === selectedDate.getDate(),
+      )
+    : [];
 
   return (
     <div
@@ -221,11 +302,20 @@ export default function Dashboard() {
           date={currentDate}
           views={["month"]}
           selectable
+          events={meetings}
           startAccessor="start"
           endAccessor="end"
           style={{ height: "75vh" }}
           onSelectSlot={handleSelectSlot}
+          onSelectEvent={(event) => handleSelectSlot({ start: event.start })}
           toolbar={false}
+          eventPropGetter={() => ({
+            style: {
+              backgroundColor: "#f97316",
+              borderColor: "#ea580c",
+              color: "white",
+            },
+          })}
           dayPropGetter={(date) => {
             const holiday = getHoliday(date);
             if (holiday)
@@ -260,6 +350,29 @@ export default function Dashboard() {
                 ))}
               </div>
               <div className="flex-1 flex flex-col gap-4">
+                {selectedDateMeetings.map((meeting) => (
+                  <div
+                    key={meeting.id}
+                    className="p-4 rounded-2xl shadow-lg bg-orange-500 text-white"
+                  >
+                    <div className="flex flex-col gap-1">
+                      <span className="font-semibold">{meeting.resource.title}</span>
+                      {meeting.resource.time && (
+                        <span className="text-sm opacity-90">{formatMeetingTime(meeting.resource.time)}</span>
+                      )}
+                      {meeting.resource.meatingLink && (
+                        <a
+                          href={meeting.resource.meatingLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm underline"
+                        >
+                          Join meeting
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
                 {DAILY_SCHEDULE.map((item, i) => {
                   const colors: Record<string, string> = {
                     Mathematics: "from-green-400 to-green-600",
