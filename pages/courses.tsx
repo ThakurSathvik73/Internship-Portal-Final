@@ -24,6 +24,7 @@ type Course = {
   progress?: number;
   status?: "enrolled" | "completed" | "available";
 };
+//new comment
 
 const Courses = () => {
   const { user } = useAuth();
